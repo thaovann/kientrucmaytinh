@@ -22,15 +22,16 @@ def run(title, args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jar", default=os.environ.get("LOGISIM_JAR"))
+    ap.add_argument("--java", default="java", help="lenh java (can Java 21+)")
     a = ap.parse_args()
     if not a.jar or not os.path.isfile(a.jar):
         sys.exit("LOI: can --jar <logisim-evolution-4.1.0-all.jar> (hoac bien LOGISIM_JAR)")
     os.makedirs("report", exist_ok=True)
     ok = {}
-    ok["module"] = run("1. Test vector tung module", ["run_tests.py", "--jar", a.jar])
-    ok["single"] = run("2. CPU single-cycle", ["cpu_test.py", *PROGS, "--jar", a.jar,
+    ok["module"] = run("1. Test vector tung module", ["run_tests.py", "--jar", a.jar, "--java", a.java])
+    ok["single"] = run("2. CPU single-cycle", ["cpu_test.py", *PROGS, "--jar", a.jar, "--java", a.java,
                         "--md", "report/ket_qua_single.md", "--label", "single-cycle"])
-    ok["pipeline"] = run("3. CPU pipeline 5 tang", ["cpu_test.py", *PROGS, "--pipe", "16", "--jar", a.jar,
+    ok["pipeline"] = run("3. CPU pipeline 5 tang", ["cpu_test.py", *PROGS, "--pipe", "17", "--jar", a.jar, "--java", a.java,
                           "--md", "report/ket_qua_pipeline.md", "--label", "pipeline 5 tang"])
     ok["compare"] = run("4. So sanh hieu nang", ["compare.py", "asm/t*_*.s", "--md", "report/so_sanh.md"])
     print("\n========== TONG KET ==========")

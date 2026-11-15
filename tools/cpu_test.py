@@ -27,25 +27,25 @@ HEADER = "<set> <seq> clk Reset PC[32] Instr[32] RegWrite rd[5] WB[32] MemWrite 
 STAGE = ["IF", "ID", "EX", "MEM", "WB"]
 
 # ---------------------------------------------------------------- tao ban ghi tung chu ky
-def trace_single(words, max_cycles, sw=0):
-    rv, recs, extra = rvsim.RV(words, sw), [], None
+def trace_single(words, max_cycles, sw=0, rx=""):
+    rv, recs, extra = rvsim.RV(words, sw, rx), [], None
     for _ in range(max_cycles):
         pc = rv.pc
         r = rv.step()
         recs.append(dict(pc=r["pc"], instr=r["ins"], regwrite=r["regwrite"], rd=r["rd"], wb=r["wb"],
                          memwrite=r["memwrite"], maddr=r["maddr"], mwdata=r["mwdata"], stages=None,
-                         iowrite=r["iowrite"], iordata=r["iordata"]))
+                         iowrite=r["iowrite"], iordata=r["iordata"], irq=r["irq"]))
         if extra is None and (rv.pc == pc or rv.pc >= 4 * len(words) + 8): extra = 2
         if extra is not None:
             extra -= 1
             if extra < 0: break
     return recs, dict(cycles=len(recs))
 
-def trace_pipe(words, lab, max_cycles, sw=0):
-    ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw)
-    if halted: max_cycles = min(max_cycles, 4 * ninstr + 100)      # tranh chay mai khi hazard lam chuong trinh lap vo han
-    else: max_cycles = min(max_cycles, len(words) + 12)               # chuong trinh khong co vong dung: chay het roi xa pipeline
-    p, raw = pipesim.run(words, lab, max_cycles, ref.pc if halted else None, sw=sw)
+def trace_pipe(words, lab, max_cycles, sw=0, rx=""):
+    ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw, rx=rx)
+    if halted: max_cycles = min(max_cycles, (12 if lab >= 17 else 4) * ninstr + 400)      # tranh chay mai khi hazard lam chuong trinh lap vo han
+    else: max_cycles = min(max_cycles, (len(words) + 12) * (4 if lab >= 17 else 1))             # chuong trinh khong co vong dung: chay het roi xa pipeline
+    p, raw = pipesim.run(words, lab, max_cycles, ref.pc if halted else None, sw=sw, rx=rx)
     recs = []
     for r in raw:
         mem = r["memwrite"] or r["memread"]
@@ -53,24 +53,26 @@ def trace_pipe(words, lab, max_cycles, sw=0):
                          memwrite=r["memwrite"], maddr=r["maddr"] if mem else None,
                          mwdata=r["mwdata"] if r["memwrite"] else None,
                          stages=list(zip(r["stages"], r["instrs"])), stall=r["stall"], flush=r["flush"],
-                         iowrite=r["iowrite"], iordata=r["iordata"]))
+                         iowrite=r["iowrite"], iordata=r["iordata"], irq=r["irq"]))
     same = p.x == ref.x and p.mem == ref.mem and (p.io.led, p.io.hex, p.io.tty) == (ref.io.led, ref.io.hex, ref.io.tty)
     return recs, dict(cycles=len(recs), ninstr=ninstr if halted else None, stalls=p.stalls, flushes=p.flushes,
                       model_ok=same)
 
 IO_COLS = False      # True khi circuit CPU co pin IORData/IOWrite (Lab 15)
+IRQ_COL = False      # True khi circuit CPU co pin vao IRQ (ngat)
 def row(seq, clk, r):
     rd = f"{r['rd']:05b}" if r["regwrite"] else "<DC>"
     wb = H(r["wb"]) if r["regwrite"] else "<DC>"
     ma = H(r["maddr"]) if r["maddr"] is not None else "<DC>"
     md = H(r["mwdata"]) if r["mwdata"] is not None else "<DC>"
     io = f" {H(r['iordata'])} {r['iowrite']}" if IO_COLS else ""
+    if IRQ_COL: io += f" {r['irq']}"
     return f"1 {seq} {clk} 0 {H(r['pc'])} {H(r['instr'])} {r['regwrite']} {rd} {wb} {r['memwrite']} {ma} {md}{io}"
 
 def gen_vector(recs, note=""):
     lines = [f"# Test vector CPU (tung chu ky) {note}",
              "# Dong clk=0: trang thai chu ky hien tai; dong clk=1: ngay sau canh len (chu ky ke tiep)",
-             HEADER + (" IORData[32] IOWrite" if IO_COLS else "")]
+             HEADER + (" IORData[32] IOWrite" if IO_COLS else "") + (" IRQ" if IRQ_COL else "")]
     seq = 1
     lines.append(row(seq, 0, recs[0])); seq += 1
     for k in range(1, len(recs)):
@@ -123,7 +125,7 @@ def report_errors(out, recs, listing, verbose):
         diffs = re.findall(r"^\s+(\S+) = ([^()\n]+?) \(expected ([^()\n]+?)\)", blk, re.M)
         errs.append((int(mnum.group(1)), diffs))
     def txt(pc, ins):
-        return "bubble" if ins == 0 else (listing.get(pc) or f"{ins:08x}")
+        return "bubble" if ins == 0 else ("<NGAT>" if ins == rvsim.W_INT else (listing.get(pc) or f"{ins:08x}"))
     for idx, diffs in errs[: (20 if verbose else 3)]:
         k = idx // 2                     # dong 1 -> chu ky 0; dong 2,3 -> chu ky 1; ...
         r = recs[k] if k < len(recs) else None
@@ -178,7 +180,7 @@ def write_md(path, results, label, pipe):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("progs", nargs="+")
-    ap.add_argument("--pipe", type=int, choices=[8, 9, 10, 11, 16], help="kiem CPU pipeline o muc lab nay (16 = co du doan nhanh)")
+    ap.add_argument("--pipe", type=int, choices=[8, 9, 10, 11, 16, 17], help="kiem CPU pipeline o muc lab nay (16 = co du doan nhanh, 17 = + cache)")
     ap.add_argument("--pad", type=int, default=0, help="chen N nop sau moi lenh (Lab 8: --pad 3)")
     ap.add_argument("--pad-load", type=int, default=0, help="chen N nop sau moi load (Lab 9: 1)")
     ap.add_argument("--pad-ctl", type=int, default=0, help="chen N nop sau moi lenh nhay (Lab 9, 10: 2)")
@@ -191,6 +193,7 @@ def main():
     ap.add_argument("--md", help="ghi bang ket qua (Markdown) cho bao cao")
     ap.add_argument("--label", default="")
     ap.add_argument("--sw", type=lambda v: int(v, 0), help="gia tri cong tac DIP (mac dinh: dong '# SW = ...' trong file .s, hoac 0)")
+    ap.add_argument("--rx", type=lambda v: v.encode().decode("unicode_escape"), help="chuoi go tu ban phim cho UART RX (mac dinh: dong '# RX = \"...\"' trong file .s)")
     ap.add_argument("-v", action="store_true", help="in chi tiet hon cac dong loi")
     a = ap.parse_args()
     circ = a.circ or ("pipeline/riscv_pipe.circ" if a.pipe else "single/riscv_single.circ")
@@ -199,15 +202,17 @@ def main():
     def build(p):
         words = rvsim.load_words(p, a.pad, a.pad_load, a.pad_ctl)
         sw = a.sw if a.sw is not None else rvsim.parse_sw(p)
-        recs, info = trace_pipe(words, a.pipe, a.n, sw) if a.pipe else trace_single(words, a.n, sw)
+        rx = a.rx if a.rx is not None else rvsim.parse_rx(p)
+        recs, info = trace_pipe(words, a.pipe, a.n, sw, rx) if a.pipe else trace_single(words, a.n, sw, rx)
         if not a.pipe:
-            ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw); info["ninstr"] = ninstr if halted else None
+            ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw, rx=rx); info["ninstr"] = ninstr if halted else None
         return words, recs, info
 
-    global IO_COLS
+    global IO_COLS, IRQ_COL
     if os.path.isfile(circ):
         cm = re.search(r'<circuit name="%s">.*?</circuit>' % re.escape(a.circuit), open(circ, encoding="utf-8").read(), re.S)
         IO_COLS = bool(cm and 'val="IORData"' in cm.group(0) and 'val="IOWrite"' in cm.group(0))
+        IRQ_COL = bool(cm and re.search(r'name="Pin">(?:(?!</comp>).)*val="IRQ"', cm.group(0), re.S))
     if a.gen:
         words, recs, info = build(progs[0])
         open(a.gen, "w", newline="\n").write(gen_vector(recs, os.path.basename(progs[0])))
@@ -230,7 +235,7 @@ def main():
         out = run_logisim(a.java, a.jar, a.circuit, circ, circ_text, words, gen_vector(recs, name))
         mm = re.search(r"Passed\s*:\s*(\d+),\s*Failed\s*:\s*(\d+)", out)
         padded = a.pad or a.pad_load or a.pad_ctl
-        exps = rvsim.check_expect(p, rvsim.run_to_halt(words, sw=a.sw if a.sw is not None else rvsim.parse_sw(p))[0]) if not padded else []
+        exps = rvsim.check_expect(p, rvsim.run_to_halt(words, sw=a.sw if a.sw is not None else rvsim.parse_sw(p), rx=a.rx if a.rx is not None else rvsim.parse_rx(p))[0]) if not padded else []
         if not mm:
             ok_all = False
             print(f"{name:20s} LOI CHAY:\n" + "\n".join("    " + l for l in out.strip().splitlines()[-8:]))

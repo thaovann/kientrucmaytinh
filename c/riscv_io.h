@@ -7,6 +7,19 @@
 #define IO_HEX   (*(volatile unsigned *)0x80000004u)   /* ghi: 8 LED 7 doan     doc: gia tri da ghi */
 #define IO_UART  (*(volatile unsigned *)0x80000008u)   /* ghi: gui 1 ky tu ra TTY; doc: 1 = san sang */
 #define IO_SW    (*(volatile unsigned *)0x8000000Cu)   /* doc: 8 cong tac DIP */
+#define IO_RX    (*(volatile unsigned *)0x80000010u)   /* UART RX (ban phim). doc: bit 8 = co ky tu, bit 6..0 = ky tu;
+                                                           ghi (gia tri bat ky): bo ky tu dau hang doi */
+
+#define IO_IE    (*(volatile unsigned *)0x80000014u)   /* bit 0 = cho phep ngat UART RX (doc/ghi).
+                                                           Trinh phuc vu ngat phai viet bang assembly tai 0x004, xem README */
+
+static inline int kbhit_(void) { return (IO_RX >> 8) & 1u; }   /* 1 neu co ky tu dang cho */
+static inline char getc_(void) {                               /* cho va lay 1 ky tu tu ban phim */
+    unsigned v;
+    while (!((v = IO_RX) & 0x100u)) { }
+    IO_RX = 0;
+    return (char)(v & 0x7Fu);
+}
 
 static inline void putc_(char c) {
     while (IO_UART == 0) { }        /* cho UART san sang */

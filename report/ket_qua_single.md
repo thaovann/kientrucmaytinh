@@ -9,6 +9,10 @@
 | `t14b_mulhw.s` | T14b: cung bai toan nhu t6_mul.s nhung dung lenh MUL phan cung (de so sanh so chu ky) | 17 | 19 | 37/37 | 6/6 | **PASS** |
 | `t15_io.s` | T15: I/O anh xa bo nho - LED, HEX (7 doan), UART TX (TTY), cong tac SW | 124 | 126 | 251/251 | 10/10 | **PASS** |
 | `t16_predict.s` | T16: Du doan nhanh - vong lap long nhau, mau xen ke, hai nhanh trung chi so BTB, goi ham bang jal | 356 | 358 | 715/715 | 7/7 | **PASS** |
+| `t17_uart_rx.s` | T17: UART RX (ban phim) - doc tung ky tu, doi chu thuong -> chu hoa, in lai ra TTY (echo) toi khi gap '\n' | 207 | 209 | 417/417 | 4/4 | **PASS** |
+| `t18_irq.s` | T18: Ngat UART RX - chuong trinh chinh tinh toan, trinh phuc vu ngat (ISR) nhan ky tu va in ra TTY | 1045 | 1047 | 2093/2093 | 5/5 | **PASS** |
+| `t18b_irq_burst.s` | T18b: Ngat lien tiep - 4 ky tu co san truoc khi bat ngat; sau moi iret ngat xay ra ngay o lenh tiep theo | 47 | 49 | 97/97 | 5/5 | **PASS** |
+| `t19_cache.s` | T19: Cache - doc mang 2 lan (lan 2 toan hit), xung dot chi so, ghi write-through khi hit/miss, sb/lh qua cache | 539 | 541 | 1081/1081 | 11/11 | **PASS** |
 | `t1_arith.s` | T1: So hoc / logic va cac ca bien (tran so, dich 0/31, so am, x0) | 32 | 34 | 67/67 | 26/26 | **PASS** |
 | `t2_sum.s` | T2: Vong lap tinh tong 1..10, luu vao bo nho | 35 | 37 | 73/73 | 4/4 | **PASS** |
 | `t3_fib.s` | T3: 12 so Fibonacci dau tien, luu mang tai 0x100 | 90 | 92 | 183/183 | 13/13 | **PASS** |

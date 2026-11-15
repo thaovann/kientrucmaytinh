@@ -36,6 +36,7 @@ def expand(m, o):
     if m=='j':    return [('jal',['x0',o[0]])]
     if m=='jr':   return [('jalr',['x0',o[0],'0'])]
     if m=='ret':  return [('jalr',['x0','ra','0'])]
+    if m=='iret': return [('jalr',['x0','tp','-4'])]      # thoat trinh phuc vu ngat (tp = PC bi ngat + 4)
     if m=='beqz': return [('beq',[o[0],'x0',o[1]])]
     if m=='bnez': return [('bne',[o[0],'x0',o[1]])]
     if m=='jal' and len(o)==1: return [('jal',['ra',o[0]])]

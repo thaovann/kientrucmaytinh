@@ -63,34 +63,72 @@ def is_io(addr):
     return addr >= IO_BASE
 
 class IO:
-    """Giong circuit IO (Lab 15). Chon thiet bi bang Addr[3:2]:
+    """Giong circuit IO (Lab 15). Chon thiet bi bang Addr[4:2]:
        0x80000000 LED  (ghi/doc)      0x80000004 HEX (ghi/doc, 8 LED 7 doan)
        0x80000008 UART TX: ghi = gui ky tu ra TTY, doc = 1 (luon san sang)
-       0x8000000C SW   (doc, 8 cong tac DIP)"""
-    def __init__(self, sw=0):
-        self.led, self.hex, self.sw, self.tty = 0, 0, sw & 0xFF, []
+       0x8000000C SW   (doc, 8 cong tac DIP)
+       0x80000010 UART RX (ban phim): doc = bit 8: co ky tu, bit 6..0: ky tu dau hang doi
+                                      ghi (gia tri bat ky) = bo ky tu dau hang doi
+       0x80000014 IE: bit 0 = cho phep ngat UART RX (ghi/doc).  IRQ = IE & (co ky tu)
+       0x80000018..1C: doc = 0, ghi khong tac dung
+       rx: chuoi ky tu, hoac (chuoi, gap): ky tu thu i toi o chu ky (i+1)*gap (gap = 0: co san tu dau)"""
+    def __init__(self, sw=0, rx=b""):
+        self.led, self.hex, self.sw, self.tty, self.ie = 0, 0, sw & 0xFF, [], 0
+        s, gap = rx if isinstance(rx, tuple) else (rx, 0)
+        chars = [c & 0x7F for c in (s.encode() if isinstance(s, str) else s)]
+        self.cyc, self.rx = 0, []
+        self.rx_pend = [((i + 1) * gap, c) for i, c in enumerate(chars)]
+        self._arrive()
+    def _arrive(self):
+        while self.rx_pend and self.rx_pend[0][0] <= self.cyc: self.rx.append(self.rx_pend.pop(0)[1])
+    def tick(self):
+        """Goi 1 lan moi chu ky (o canh len): ky tu tu ban phim toi theo lich."""
+        self.cyc += 1; self._arrive()
+    def irq(self):
+        return int(bool(self.ie and self.rx))
     def read(self, addr):
-        return [self.led, self.hex, 1, self.sw][(addr >> 2) & 3]
+        rxv = (0x100 | self.rx[0]) if self.rx else 0
+        return [self.led, self.hex, 1, self.sw, rxv, self.ie, 0, 0][(addr >> 2) & 7]
     def write(self, addr, val):
-        k = (addr >> 2) & 3
+        k = (addr >> 2) & 7
         if k == 0: self.led = val
         elif k == 1: self.hex = val
         elif k == 2: self.tty.append(val & 0x7F)
+        elif k == 4 and self.rx: self.rx.pop(0)
+        elif k == 5: self.ie = val & 1
     def text(self):
         return "".join(chr(c) for c in self.tty)
 
+# Ngat (interrupt): khi IRQ = 1 va chua o trong trinh phuc vu ngat (INH = 0), CPU thay lenh vua nap
+# bang W_INT = "jalr tp, INT_VEC(x0)": tp = PC + 4, nhay toi INT_VEC. INH = 1 khi W_INT thuc thi (o EX),
+# INH = 0 khi W_IRET = "jalr x0, -4(tp)" (lenh gia iret) thuc thi.
+INT_VEC = 0x004
+W_INT = (INT_VEC << 20) | (4 << 7) | 0x67              # 0x00400267
+W_IRET = (0xFFC << 20) | (4 << 15) | 0x67              # 0xFFC20067
+
 class RV:
-    def __init__(self, words, sw=0):
-        self.io = IO(sw)
+    def __init__(self, words, sw=0, rx=b""):
+        self.io = IO(sw, rx)
         self.imem = [0] * 1024
         for i, w in enumerate(words[:1024]): self.imem[i] = w
         self.x = [0] * 32
         self.mem = [0] * 1024
         self.pc = 0
+        self.inh = 0                                      # dang trong trinh phuc vu ngat
 
     def step(self):
         """Thuc thi 1 lenh. Tra ve ban ghi nhung gi CPU phai the hien trong chu ky nay."""
+        irq = self.io.irq()
         pc, ins = self.pc, self.imem[(self.pc >> 2) & 0x3FF]
+        if irq and not self.inh: ins = W_INT              # nhan ngat: thay lenh bang W_INT
+        if ins == W_INT: self.inh = 1
+        elif ins == W_IRET: self.inh = 0
+        rec = self._exec(pc, ins)
+        rec['irq'] = irq
+        self.io.tick()
+        return rec
+
+    def _exec(self, pc, ins):
         op, rd, f3 = ins & 0x7F, bits(ins, 11, 7), bits(ins, 14, 12)
         rs1, rs2, b30 = bits(ins, 19, 15), bits(ins, 24, 20), bits(ins, 30, 30)
         a, b = self.x[rs1], self.x[rs2]
@@ -176,6 +214,19 @@ def parse_sw(path):
         if m: return int(m.group(1), 0)
     return 0
 
+def parse_rx(path):
+    """Chuoi ky tu go tu ban phim (UART RX) khi mo phong: dong '# RX = "abc\\n"' trong file .s (mac dinh rong)."""
+    """Them dong '# RX_GAP = 61': ky tu thu i toi o chu ky (i+1)*61 -> tra ve (chuoi, gap)."""
+    if not path.endswith('.s'): return ""
+    s, gap = "", 0
+    for line in open(path, encoding='utf-8-sig'):
+        m = _re.match(r'\s*#\s*RX\s*=\s*(".*")\s*$', line)
+        if m:
+            import ast; s = ast.literal_eval(m.group(1))
+        m = _re.match(r'\s*#\s*RX_GAP\s*=\s*(\S+)', line)
+        if m: gap = int(m.group(1), 0)
+    return (s, gap) if gap else s
+
 def read_target(rv, name):
     if name == "TTY": return rv.io.text()
     if name.upper() == "LED": return rv.io.led
@@ -185,9 +236,9 @@ def read_target(rv, name):
     import asm
     return rv.x[asm.REGS[name]]
 
-def run_to_halt(words, max_cycles=100000, sw=0):
+def run_to_halt(words, max_cycles=100000, sw=0, rx=""):
     """Chay toi vong lap dung 'j .'; tra ve (rv, so lenh da thuc thi, co gap vong lap dung khong)."""
-    rv = RV(words, sw)
+    rv = RV(words, sw, rx)
     for n in range(1, max_cycles + 1):
         pc = rv.pc
         rv.step()
@@ -210,7 +261,7 @@ def main():
     ap.add_argument("-t", action="store_true", help="in tung lenh")
     a = ap.parse_args()
     import asm
-    rv = RV(load_words(a.prog), parse_sw(a.prog))
+    rv = RV(load_words(a.prog), parse_sw(a.prog), parse_rx(a.prog))
     seen_halt = 0
     for cyc in range(a.n):
         pc = rv.pc

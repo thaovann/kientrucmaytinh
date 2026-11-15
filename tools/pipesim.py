@@ -10,6 +10,7 @@ Cac muc (--lab):
   10 : + stall 1 chu ky khi load-use
   11 : + flush 2 lenh sai duong khi nhay (du doan khong nhay, quyet dinh o EX)
   16 : + du doan nhanh dong: BTB 16 muc + bo dem bao hoa 2 bit (tra cuu o IF, cap nhat o EX)
+  17 : + I-cache va D-cache (direct-mapped 16 dong x 4 word; miss -> CPU dong bang 8 chu ky de nap dong)
 
 Thiet ke duoc mo hinh hoa:
   - Nhay quyet dinh o EX: PCnext = (Branch&Taken | Jump) ? PC_EX + Imm : (Jalr ? (ALU & ~1) : PC_IF + 4)
@@ -21,6 +22,7 @@ Thiet ke duoc mo hinh hoa:
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rvsim
+from cache import Cache, NoCache, FILL
 
 M = 0xFFFFFFFF
 s32, sext, bits = rvsim.s32, rvsim.sext, rvsim.bits
@@ -84,8 +86,8 @@ class BTB:
         self.tgt[i] = (target & ~3 & M) | ctr
 
 class Pipe:
-    def __init__(self, words, lab=11, sw=0):
-        self.io = rvsim.IO(sw)
+    def __init__(self, words, lab=11, sw=0, rx=""):
+        self.io = rvsim.IO(sw, rx)
         self.fwd = lab >= 9; self.stall_en = lab >= 10; self.flush_en = lab >= 11; self.bp = lab >= 16
         self.btb = BTB()
         self.mispred = 0
@@ -100,10 +102,16 @@ class Pipe:
         self.memwb = dict(pc=0, result=0, rdata=0, rd=0, instr=0, regwrite=0, m2r=0)
         self.cycle = 0
         self.stalls = self.flushes = 0
+        self.inh = 0                                                   # dang trong trinh phuc vu ngat
+        self.icache = lab >= 17                                        # lab 17: I-cache + D-cache (tools/cache.py)
+        self.dcache = lab >= 17 and not os.environ.get("PIPESIM_NO_DCACHE")
+        self.ic, self.dc = Cache(), Cache()
+        self.cstalls = 0                                               # so chu ky dong bang vi cache miss
 
     def step(self):
         """Mo phong 1 chu ky. Tra ve ban ghi cac gia tri quan sat duoc TRUOC canh len."""
         ifid, idex, exmem, memwb = self.ifid, self.idex, self.exmem, self.memwb
+        irq = self.io.irq()                                             # theo trang thai I/O dau chu ky
         # ---- WB
         wbval = memwb["rdata"] if memwb["m2r"] & 1 else memwb["result"]
         wb_we = memwb["regwrite"] and memwb["rd"] != 0
@@ -143,7 +151,18 @@ class Pipe:
         stall = bool(self.stall_en and idex["memread"] and idex["rd"] and idex["rd"] in (d["rs1"], d["rs2"]))
         flush = bool(self.flush_en and pcsel)
         # ---- IF
-        instr_f = self.imem[(self.pc >> 2) & 0x3FF]
+        if self.icache:                                                 # lab 17: lenh lay tu I-cache
+            ist = self.ic.stall(self.pc, 1)
+            instr_f = self.ic.rdata(self.pc)
+        else:
+            ist, instr_f = 0, self.imem[(self.pc >> 2) & 0x3FF]
+        d_ram = not io_acc
+        dreq = int(bool(exmem["memread"] and d_ram))
+        dst = self.dc.stall(exmem["result"], dreq) if self.dcache else 0
+        cstall = bool(ist or dst)                                      # cache miss: dong bang ca CPU
+        # Ngat: thay lenh vua nap bang W_INT neu IRQ, khong o trong trinh phuc vu ngat va chua co W_INT o ID/EX.
+        # W_INT bi flush (nhanh sai duong) thi IRQ van con -> se chen lai o duong dung.
+        if irq and not self.inh and rvsim.W_INT not in (ifid["instr"], idex["instr"]): instr_f = rvsim.W_INT
         pc4_f = (self.pc + 4) & M
         pred_f, ptgt_f = self.btb.lookup(self.pc) if self.bp else (0, 0)
 
@@ -151,10 +170,27 @@ class Pipe:
                    regwrite=memwb["regwrite"], rd=memwb["rd"], wb=wbval,
                    memwrite=exmem["memwrite"], memread=exmem["memread"],
                    maddr=exmem["result"], mwdata=exmem["wdata"],
-                   iowrite=int(bool(exmem["memwrite"] and io_acc)), iordata=iordata if (exmem["memread"] and io_acc) else 0,
-                   stall=stall, flush=flush,
+                   iowrite=int(bool(exmem["memwrite"] and io_acc and not cstall)),
+                   iordata=iordata if (exmem["memread"] and io_acc) else 0,
+                   stall=stall, flush=flush, irq=irq, cstall=cstall,
                    stages=(self.pc, ifid["pc"], idex["pc"], exmem["pc"], memwb["pc"]),
                    instrs=(instr_f, ifid["instr"], idex["instr"], exmem["instr"], memwb["instr"]))
+
+        # ---- cache: nap dong (dung clock goc, ke ca khi CPU dong bang)
+        da = exmem["result"]
+        if self.icache:
+            self.ic.edge(self.pc, 1, self.imem[(self.ic.fill_addr(self.pc) >> 2) & 0x3FF])
+        if self.dcache:
+            dwe = exmem["memwrite"] and d_ram and not cstall
+            merged = 0
+            if dwe:                                                     # word sau StoreMerge (ghi vao RAM)
+                tmp = {(da >> 2) & 0x3FF: self.mem[(da >> 2) & 0x3FF]}
+                rvsim.mem_store(tmp, da, exmem["wdata"], exmem["f3"]); merged = tmp[(da >> 2) & 0x3FF]
+            self.dc.edge(da, dreq, self.mem[(self.dc.fill_addr(da) >> 2) & 0x3FF], dwe, merged)
+        if cstall:                                                      # CPU dong bang: khong doi trang thai
+            self.io.tick()
+            self.cstalls += 1; self.cycle += 1
+            return rec
 
         # ---- canh len
         if wb_we: self.x[memwb["rd"]] = wbval
@@ -177,13 +213,18 @@ class Pipe:
         elif not stall: self.pc = ptgt_f if pred_f else pc4_f
         if self.bp and (idex["branch"] or idex["jump"]):              # cap nhat BTB o canh len
             self.btb.update(idex["pc"], brt, bool(selbr))
+        if idex["instr"] == rvsim.W_INT: self.inh = 1                   # W_INT / iret o tang EX
+        elif idex["instr"] == rvsim.W_IRET: self.inh = 0
+        self.io.tick()
         self.stalls += stall; self.flushes += flush
         self.cycle += 1
         return rec
 
-def run(words, lab, max_cycles=20000, halt_pc=None, drain=3, sw=0):
+def run(words, lab, max_cycles=20000, halt_pc=None, drain=3, sw=0, rx="", nocache=False):
     """Chay toi khi lenh dung (j .) tai halt_pc da toi tang WB 2 lan, them 'drain' chu ky."""
-    p, recs, seen, left = Pipe(words, lab, sw), [], 0, None
+    p, recs, seen, left = Pipe(words, lab, sw, rx), [], 0, None
+    if nocache:                                    # uoc tinh: khong cache, moi lan doc bo nho ton 5 chu ky
+        p.ic = NoCache(lambda a: p.imem[(a >> 2) & 0x3FF]); p.dc = NoCache(lambda a: p.mem[(a >> 2) & 0x3FF])
     halt_ins = p.imem[(halt_pc >> 2) & 0x3FF] if halt_pc is not None else None
     for _ in range(max_cycles):
         r = p.step(); recs.append(r)
@@ -198,7 +239,7 @@ STAGE = ["IF", "ID", "EX", "MEM", "WB"]
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("prog")
-    ap.add_argument("--lab", type=int, default=11, choices=[8, 9, 10, 11, 16])
+    ap.add_argument("--lab", type=int, default=11, choices=[8, 9, 10, 11, 16, 17])
     ap.add_argument("--pad", type=int, default=0, help="chen N nop sau moi lenh")
     ap.add_argument("--pad-load", type=int, default=0, help="chen N nop sau moi lenh load")
     ap.add_argument("--pad-ctl", type=int, default=0, help="chen N nop sau moi lenh nhay")
@@ -208,18 +249,22 @@ def main():
     import asm
     words = rvsim.load_words(a.prog, a.pad, a.pad_load, a.pad_ctl)
     listing = {pc: t for pc, _, t in asm.assemble(a.prog, a.pad, a.pad_load, a.pad_ctl)[1]} if a.prog.endswith(".s") else {}
-    sw = rvsim.parse_sw(a.prog)
-    ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw)
-    p, recs = run(words, a.lab, a.n, ref.pc if halted else None, sw=sw)
+    sw, rx = rvsim.parse_sw(a.prog), rvsim.parse_rx(a.prog)
+    ref, ninstr, halted = rvsim.run_to_halt(words, sw=sw, rx=rx)
+    p, recs = run(words, a.lab, a.n, ref.pc if halted else None, sw=sw, rx=rx)
     if a.t:
         for c, r in enumerate(recs):
             cells = []
             for st, pc, ins in zip(STAGE, r["stages"], r["instrs"]):
-                txt = "bubble" if ins == 0 else listing.get(pc, f"{ins:08x}")
+                txt = "bubble" if ins == 0 else ("<NGAT>" if ins == rvsim.W_INT else listing.get(pc, f"{ins:08x}"))
                 cells.append(f"{st}:{txt[:18]:18s}")
             tag = (" STALL" if r["stall"] else "") + (" FLUSH" if r["flush"] else "")
             print(f"{c:4d} " + " | ".join(cells) + tag)
     if a.lab >= 16: print(f"\nDu doan sai: {p.mispred} lan")
+    if a.lab >= 17:
+        print(f"I-cache: {p.ic.misses} miss / {p.ic.accesses + p.ic.misses} lan doc lenh; "
+              f"D-cache: {p.dc.misses} miss / {p.dc.accesses + p.dc.misses} lan doc du lieu; "
+              f"{p.cstalls} chu ky dong bang (moi miss {FILL} chu ky)")
     print(f"\nPipeline lab {a.lab}: {len(recs)} chu ky, {p.stalls} stall, {p.flushes} flush; "
           f"single-cycle: {ninstr} lenh -> CPI ~ {len(recs) / max(ninstr, 1):.2f}")
     diff = [i for i in range(32) if p.x[i] != ref.x[i]]

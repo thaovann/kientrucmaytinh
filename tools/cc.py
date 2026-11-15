@@ -128,6 +128,7 @@ def main():
     ap.add_argument("-O", default="2", help="muc toi uu (0, 1, 2, s)")
     ap.add_argument("--run", action="store_true", help="chay thu bang mo phong tap lenh (rvsim)")
     ap.add_argument("--sw", type=lambda s: int(s, 0), default=0, help="gia tri 8 cong tac khi --run")
+    ap.add_argument("--rx", type=lambda v: v.encode().decode("unicode_escape"), default="", help="chuoi go tu ban phim (UART RX) khi --run, vi du \"12+30\\n\"")
     ap.add_argument("-n", type=int, default=2_000_000, help="so lenh toi da khi --run")
     a = ap.parse_args()
     out = a.o or os.path.join(ROOT, "rom", os.path.splitext(os.path.basename(a.src[0]))[0] + ".hex")
@@ -144,7 +145,7 @@ def main():
     print(f"  doan khoi tao RAM: {info['stub']} lenh (ghi {info['data_nonzero']} word du lieu), main bat dau tai 0x{info['text_start']:X}")
     print(f"  du lieu trong RAM: {info['data_bytes']} byte tu 0x{RAM_BASE:X}; ngan xep tu 0x{RAM_END:X} di xuong")
     if a.run:
-        rv = rvsim.RV(words, a.sw)
+        rv = rvsim.RV(words, a.sw, a.rx)
         last = len(rv.io.tty)
         for n in range(1, a.n + 1):
             pc = rv.pc; rv.step()

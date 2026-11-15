@@ -30,6 +30,7 @@ TESTS = [
     ("MemMap",    "tests/memmap.txt",    "modules/riscv_modules.circ"),   # Lab 15
     ("BTB",       "tests/btb.txt",       "modules/riscv_modules.circ"),   # Lab 16
     ("PredRegs",  "tests/predregs.txt",  "modules/riscv_modules.circ"),
+    ("Cache",     "tests/cache.txt",     "modules/riscv_modules.circ"),   # cache (mo rong)
     ("IMEM",      "tests/imem_lab0.txt", "single/riscv_single.circ"),   # tu nap rom/lab0_check.hex vao ban sao
     ("DMEM",      "tests/dmem.txt",      "single/riscv_single.circ"),     # Lab 13: dmem.txt co cot funct3
     ("DMEM",      "tests/dmem.txt",      "pipeline/riscv_pipe.circ"),
