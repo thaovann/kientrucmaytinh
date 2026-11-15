@@ -11,6 +11,8 @@ Cả hai phiên bản đều có **ngắt (interrupt)** từ UART RX (mục 1.1)
 
 Hai phiên bản dùng chung thư viện module `modules/riscv_modules.circ`.
 
+Những gì đã thay đổi so với bản gốc khi thêm UART RX, ngắt, cache và số thực: xem [THAY_DOI.md](THAY_DOI.md).
+
 ## 1. Tập lệnh hỗ trợ
 
 | Nhóm | Lệnh |
