@@ -23,6 +23,7 @@ import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rvsim
 from cache import Cache, NoCache, FILL
+import fpu
 
 M = 0xFFFFFFFF
 s32, sext, bits = rvsim.s32, rvsim.sext, rvsim.bits
@@ -30,7 +31,8 @@ s32, sext, bits = rvsim.s32, rvsim.sext, rvsim.bits
 # Bang dieu khien giong Control ROM (Lab 5)
 CTRL = {0x33: (1,0,0,0,0,0,0,0,2,0), 0x13: (1,1,0,0,0,0,0,0,3,0), 0x03: (1,1,1,0,1,0,0,0,0,0),
         0x23: (0,1,0,1,0,0,0,0,0,1), 0x63: (0,0,0,0,0,1,0,0,0,2), 0x6F: (1,0,0,0,2,0,1,0,0,4),
-        0x67: (1,1,0,0,2,0,0,1,0,0), 0x37: (1,1,0,0,0,0,0,0,1,3)}
+        0x67: (1,1,0,0,2,0,0,1,0,0), 0x37: (1,1,0,0,0,0,0,0,1,3),
+        0x53: (1,0,0,0,0,0,0,0,2,0)}                       # OP-FP (Zfinx): nhu R-type
 F3 = {1: 7, 2: 5, 3: 6, 4: 4, 6: 3, 7: 2}
 
 def decode(ins):
@@ -129,6 +131,7 @@ class Pipe:
         breg = fwd(idex["rs2"], idex["rd2"])
         aluout = alu(idex["aluctl"], a, idex["imm"] if idex["alusrc"] else breg)
         if rvsim.is_m(idex["instr"]): aluout = rvsim.muldiv(idex["f3"], a, breg)   # Lab 14: MUX sau ALU
+        if fpu.is_fp(idex["instr"]): aluout = fpu.fpu(idex["instr"], a, breg)      # so thuc: MUX sau MulDiv
         t = taken(idex["f3"], a, breg)
         selbr = (idex["branch"] and t) or idex["jump"]
         result = idex["pc4"] if idex["m2r"] & 2 else aluout

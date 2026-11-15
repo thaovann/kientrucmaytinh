@@ -15,6 +15,25 @@ SH = {'slli':(0,1),'srli':(0,5),'srai':(0x20,5)}
 LD = {'lb':0,'lh':1,'lw':2,'lbu':4,'lhu':5}
 ST = {'sb':0,'sh':1,'sw':2}
 BR = {'beq':0,'bne':1,'blt':4,'bge':5,'bltu':6,'bgeu':7}
+# So thuc Zfinx (opcode 0x53, toan hang la thanh ghi x): ten -> (funct5, funct3 co dinh hoac None = rm, rs2 co dinh hoac None)
+FP = {'fadd.s':(0,None,None), 'fsub.s':(1,None,None), 'fmul.s':(2,None,None), 'fdiv.s':(3,None,None),
+      'fsqrt.s':(11,None,0), 'fsgnj.s':(4,0,None), 'fsgnjn.s':(4,1,None), 'fsgnjx.s':(4,2,None),
+      'fmin.s':(5,0,None), 'fmax.s':(5,1,None), 'fle.s':(20,0,None), 'flt.s':(20,1,None), 'feq.s':(20,2,None),
+      'fcvt.w.s':(24,None,0), 'fcvt.wu.s':(24,None,1), 'fcvt.s.w':(26,None,0), 'fcvt.s.wu':(26,None,1)}
+RM = {'rne':0, 'rtz':1, 'rdn':2, 'rup':3, 'rmm':4, 'dyn':7}
+
+def float_bits(s):
+    """'3.25f', '-1e-3f', 'inf' ... -> bit cua so thuc 32 bit; khong phai so thuc -> None"""
+    t = s.lower()
+    if t.endswith('f') and not t.lstrip('+-').startswith('0x') and any(c in t for c in '.e'):
+        t = t[:-1]
+    elif t.lstrip('+-') not in ('inf', 'nan'):
+        return None
+    import struct, math
+    v = float(t)
+    if math.isnan(v): return 0x7FC00000
+    try: return struct.unpack('<I', struct.pack('<f', v))[0]
+    except OverflowError: return 0xFF800000 if v < 0 else 0x7F800000
 
 def enc_r(f7,rs2,rs1,f3,rd,op): return (f7<<25)|(rs2<<20)|(rs1<<15)|(f3<<12)|(rd<<7)|op
 def enc_i(imm,rs1,f3,rd,op):    return ((imm&0xfff)<<20)|(rs1<<15)|(f3<<12)|(rd<<7)|op
@@ -40,8 +59,15 @@ def expand(m, o):
     if m=='beqz': return [('beq',[o[0],'x0',o[1]])]
     if m=='bnez': return [('bne',[o[0],'x0',o[1]])]
     if m=='jal' and len(o)==1: return [('jal',['ra',o[0]])]
+    if m=='fmv.s':  return [('fsgnj.s', [o[0], o[1], o[1]])]
+    if m=='fneg.s': return [('fsgnjn.s',[o[0], o[1], o[1]])]
+    if m=='fabs.s': return [('fsgnjx.s',[o[0], o[1], o[1]])]
+    if m=='fgt.s':  return [('flt.s',   [o[0], o[2], o[1]])]
+    if m=='fge.s':  return [('fle.s',   [o[0], o[2], o[1]])]
     if m=='li':
-        v = num(o[1])
+        fb = float_bits(o[1])
+        v = fb if fb is not None else num(o[1])
+        if fb is not None and fb & 0x80000000: v = fb - (1 << 32)
         if -2048 <= v < 2048: return [('addi',[o[0],'x0',str(v)])]
         v &= 0xffffffff; lo = v & 0xfff
         if lo >= 0x800: lo -= 0x1000
@@ -66,6 +92,12 @@ def encode(m, o, pc, labels):
         if len(o)==3: return enc_i(num(o[2]),reg(o[1]),0,reg(o[0]),0x67)
         imm,rs1=memop(o[1]); return enc_i(imm,rs1,0,reg(o[0]),0x67)
     if m=='lui':  return enc_u(num(o[1]),reg(o[0]),0x37)
+    if m in FP:
+        f5, f3, r2 = FP[m]
+        rs2 = r2 if r2 is not None else reg(o[2])
+        nops = 2 if r2 is not None else 3                 # so toan hang thanh ghi
+        if f3 is None: f3 = RM[o[nops].lower()] if len(o) > nops else 7   # rm tuy chon, mac dinh dyn
+        return enc_r(f5 << 2, rs2, reg(o[1]), f3, reg(o[0]), 0x53)
     raise ValueError(f"Lenh khong ho tro: {m}")
 
 def assemble(src, pad=0, pad_load=0, pad_ctl=0):

@@ -14,6 +14,7 @@
 | `t18b_irq_burst.s` | T18b: Ngat lien tiep - 4 ky tu co san truoc khi bat ngat; sau moi iret ngat xay ra ngay o lenh tiep theo | 47 | 122 | 2.60 | 0 | 10 | 243/243 | **PASS** |
 | `t19_cache.s` | T19: Cache - doc mang 2 lan (lan 2 toan hit), xung dot chi so, ghi write-through khi hit/miss, sb/lh qua cache | 539 | 824 | 1.53 | 64 | 7 | 1647/1647 | **PASS** |
 | `t1_arith.s` | T1: So hoc / logic va cac ca bien (tran so, dich 0/31, so am, x0) | 32 | 113 | 3.53 | 0 | 1 | 225/225 | **PASS** |
+| `t20_fp.s` | T20: So thuc single precision (Zfinx: so thuc nam trong thanh ghi x) - phep toan, lam tron, chuyen doi, so sanh, hazard | 202 | 387 | 1.92 | 20 | 3 | 773/773 | **PASS** |
 | `t2_sum.s` | T2: Vong lap tinh tong 1..10, luu vao bo nho | 35 | 80 | 2.29 | 0 | 3 | 159/159 | **PASS** |
 | `t3_fib.s` | T3: 12 so Fibonacci dau tien, luu mang tai 0x100 | 90 | 143 | 1.59 | 0 | 3 | 285/285 | **PASS** |
 | `t4_recursion.s` | T4: De quy fib(8) dung stack (JAL/JALR/SW/LW voi sp) | 637 | 1018 | 1.60 | 66 | 102 | 2035/2035 | **PASS** |

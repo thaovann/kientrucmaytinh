@@ -7,7 +7,7 @@ Thiết kế, mô phỏng và kiểm thử một CPU 32-bit theo tập lệnh **
 | Đơn chu kỳ (single-cycle) | `single/riscv_single.circ` | Mỗi lệnh hoàn thành trong 1 chu kỳ |
 | Pipeline 5 tầng | `pipeline/riscv_pipe.circ` | IF → ID → EX → MEM → WB, có **forwarding**, **stall** khi load-use, **flush** khi nhảy, **dự đoán nhánh** (BTB 16 mục + bộ đếm 2 bit), **I-cache và D-cache** (mục 1.2) |
 
-Cả hai phiên bản đều có **ngắt (interrupt)** từ UART RX (xem mục 1.1).
+Cả hai phiên bản đều có **ngắt (interrupt)** từ UART RX (mục 1.1) và **số thực** single precision theo phần mở rộng Zfinx (mục 1.3).
 
 Hai phiên bản dùng chung thư viện module `modules/riscv_modules.circ`.
 
@@ -22,8 +22,9 @@ Hai phiên bản dùng chung thư viện module `modules/riscv_modules.circ`.
 | Nhảy không điều kiện | `jal jalr` |
 | Nhân/chia (M-extension) | **`mul mulh mulhsu mulhu div divu rem remu`** (mở rộng) |
 | Khác | `lui` |
+| Số thực single precision (Zfinx, mục 1.3) | **`fadd.s fsub.s fmul.s fdiv.s fsqrt.s fmin.s fmax.s feq.s flt.s fle.s fsgnj.s fsgnjn.s fsgnjx.s fcvt.w.s fcvt.wu.s fcvt.s.w fcvt.s.wu`** (mở rộng) |
 
-Tổng cộng 44 lệnh (25 lệnh bắt buộc + 19 lệnh mở rộng). Không hỗ trợ `auipc`, `fence`, `ecall`, CSR.
+Tổng cộng 61 lệnh (25 lệnh bắt buộc + 36 lệnh mở rộng). Không hỗ trợ `auipc`, `fence`, `ecall`, CSR, `fclass.s`.
 
 **Vào/ra ánh xạ bộ nhớ** (địa chỉ ≥ `0x80000000`, dùng `lw`/`sw`):
 
@@ -45,7 +46,7 @@ wait:   lw   t0, 16(s0)        # s0 = 0x80000000
         andi t0, t0, 0x7F      # t0 = ký tự
 ```
 
-Lệnh giả mà assembler chấp nhận: `nop mv li j jr ret beqz bnez iret`, và `jal nhan` (tương đương `jal ra, nhan`).
+Lệnh giả mà assembler chấp nhận: `nop mv li j jr ret beqz bnez iret fmv.s fneg.s fabs.s fgt.s fge.s`, và `jal nhan` (tương đương `jal ra, nhan`). `li` nhận cả hằng số thực có hậu tố `f`, ví dụ `li a0, 3.25f` nạp mẫu bit `0x40500000`.
 
 ### 1.1. Ngắt (interrupt)
 
@@ -99,6 +100,28 @@ Bản pipeline có hai cache riêng: **I-cache** (cho lệnh, nằm giữa PC v�
 
 Kết quả số chu kỳ và tỉ lệ miss của từng chương trình nằm trong `report/so_sanh.md`. So với cùng một bộ nhớ chính chậm (5 chu kỳ mỗi lần đọc, ước tính trên mô hình), cache giúp chạy nhanh hơn 1,4–4,6 lần.
 
+### 1.3. Số thực (Zfinx, cả hai bản)
+
+CPU hỗ trợ số thực IEEE-754 single precision (32 bit) theo **Zfinx**, phần mở rộng chính thức của RISC-V trong đó số thực nằm ngay trong các thanh ghi `x0`–`x31`, không có tệp thanh ghi `f` riêng. Mã lệnh giống phần mở rộng F (opcode `OP-FP` = `0x53`). Vì vậy:
+- Không có `flw`/`fsw`/`fmv.x.w`: số thực được nạp/lưu bằng `lw`/`sw` như số nguyên.
+- Lệnh FP đi qua pipeline như một lệnh R-type: forwarding, stall và flush dùng lại nguyên vẹn. Các thanh ghi pipeline không phải sửa.
+
+Phần cứng thay đổi:
+- Thêm module **`FPU`** trong thư viện, dựng từ các khối `FPArithmetic` của Logisim: cộng, trừ, nhân, chia, căn, min/max, so sánh, FP↔Int. Đầu ra được chọn theo `funct5` qua một MUX 32→1.
+- ROM của **Control** có thêm dòng cho opcode `0x53`, giống R-type.
+- Tầng EX của cả hai CPU có thêm MUX `aluout = IsFP ? FPU : (ALU/MulDiv)`.
+
+| Lệnh | Ghi chú |
+|---|---|
+| `fadd.s fsub.s fmul.s fdiv.s fsqrt.s` | Làm tròn về gần nhất, chẵn (RNE). Trường `rm` bị bỏ qua |
+| `fmin.s fmax.s` | `-0 < +0`. **Khác chuẩn**: nếu có NaN thì trả về NaN |
+| `feq.s flt.s fle.s` | Trả về 0 hoặc 1; có NaN thì trả về 0 |
+| `fsgnj.s fsgnjn.s fsgnjx.s` | Gồm cả các lệnh giả `fmv.s`, `fneg.s`, `fabs.s` |
+| `fcvt.w.s fcvt.wu.s rd, rs1[, rm]` | Theo `rm`: `rne` (0), `rtz` (1), `rdn` (2), `rup` (3); `rm` ≥ 4 (kể cả `dyn`) dùng RNE. **Khác chuẩn**: khi tràn hoặc NaN thì không bão hòa |
+| `fcvt.s.w fcvt.s.wu` | Có dấu / không dấu |
+
+Không có thanh ghi `fcsr`, cờ ngoại lệ (`fflags`) và `fclass.s`. Chương trình C dùng `float` cần biên dịch với `-march=rv32im_zfinx`; `cc.py` chưa hỗ trợ việc này.
+
 Thông số: dữ liệu 32 bit, lệnh 32 bit, 32 thanh ghi × 32 bit (x0 luôn bằng 0), PC 32 bit. Bộ nhớ lệnh (ROM) và bộ nhớ dữ liệu (RAM) mỗi bộ 1024 word = 4 KB, địa chỉ theo byte.
 
 ## 2. Yêu cầu phần mềm
@@ -112,9 +135,9 @@ Thông số: dữ liệu 32 bit, lệnh 32 bit, 32 thanh ghi × 32 bit (x0 luôn
 ```
 riscv32/
 ├── README.md
-├── modules/riscv_modules.circ   Thư viện 21 module: ALU, RegFile, ImmGen, BranchCmp, PCUnit, Control,
+├── modules/riscv_modules.circ   Thư viện 22 module: ALU, RegFile, ImmGen, BranchCmp, PCUnit, Control,
 │                                IF_ID, ID_EX, EX_MEM, MEM_WB, ForwardUnit, WBBypass, HazardUnit,
-│                                LoadExt, StoreMerge, MulDiv, IsMul, MemMap, BTB, PredRegs, Cache
+│                                LoadExt, StoreMerge, MulDiv, IsMul, MemMap, BTB, PredRegs, Cache, FPU
 ├── single/riscv_single.circ     CPU đơn chu kỳ (circuit CPU, IMEM, DMEM, IO, main)
 ├── pipeline/riscv_pipe.circ     CPU pipeline 5 tầng (circuit CPU, IMEM, DMEM, IO, main)
 ├── asm/                         Chương trình test (assembly)
@@ -219,6 +242,7 @@ python tools/compare.py "asm/t*_*.s" --md report/so_sanh.md
 | `tools/rvsim.py` | Mô phỏng tập lệnh (mô hình tham chiếu đơn chu kỳ); kiểm các dòng `# EXPECT` trong file `.s` |
 | `tools/pipesim.py` | Mô hình pipeline 5 tầng chính xác từng chu kỳ (`--lab 8/9/10/11/16/17`; 17 = có cache) |
 | `tools/cache.py` | Mô hình khối Cache (dùng chung cho `pipesim.py` và `gen_cache_tests.py`) |
+| `tools/fpu.py` | Mô hình khối FPU (dùng chung cho `rvsim.py`, `pipesim.py`, `gen_fpu_tests.py`) |
 | `tools/cc.py` | Biên dịch chương trình C thành file nạp ROM (cần `pip install ziglang`) |
 | `tools/cpu_test.py` | So sánh CPU Logisim với mô hình, từng chu kỳ |
 | `tools/run_tests.py` | Chạy test vector của các module |
@@ -250,6 +274,7 @@ python tools/compare.py "asm/t*_*.s" --md report/so_sanh.md
 | `t18_irq.s` | Ngắt: chương trình chính tính tổng và gọi hàm, 7 ký tự đến cách nhau 61 chu kỳ, ISR in ra TTY | TTY = `IRQ ok\n`, `a0 = 5050` |
 | `t18b_irq_burst.s` | Ngắt liên tiếp: 4 ký tự có sẵn trước khi bật ngắt | TTY = `ABCD`, 4 lần ngắt |
 | `t19_cache.s` | Cache: đọc mảng 2 lần (lần 2 toàn hit), xung đột chỉ số, ghi write-through khi hit/miss, `sb`/`lh` qua cache | `s1 = s2 = 1488`, 11 giá trị EXPECT |
+| `t20_fp.s` | Số thực: 5 phép toán, các chế độ làm tròn của `fcvt`, so sánh, min/max, số thực trong bộ nhớ, hazard (forwarding, load-use) | 21 giá trị EXPECT, `Σ1/k² (k=1..20) = 0x3FCC4F14` |
 | `test6a…6d_*.s` | Từng nhóm lệnh: ALU, bộ nhớ, branch, JALR | |
 | `demo15_io.s` | Demo I/O chạy liên tục (không có vòng dừng) | |
 | `demo18_irq.s` | Demo ngắt: vòng lặp chính đếm trên LED 7 đoạn, gõ phím thì ISR in chữ hoa ra TTY | |
@@ -263,9 +288,9 @@ printf 'hello, RISC-V!\n' | java -jar <jar> single/riscv_single.circ -tty tty   
 
 ## 9. Kết quả kiểm thử
 
-- Test vector module: **26/26 lượt đạt** (21 module thư viện + IMEM, DMEM, IO; 14.453 ca).
-- CPU đơn chu kỳ: **23/23 chương trình đạt**.
-- CPU pipeline có dự đoán nhánh và cache: **23/23 chương trình đạt mà không chèn `nop`**, khớp mô hình từng chu kỳ.
+- Test vector module: **27/27 lượt đạt** (22 module thư viện + IMEM, DMEM, IO; 15.202 ca).
+- CPU đơn chu kỳ: **24/24 chương trình đạt**.
+- CPU pipeline có dự đoán nhánh và cache: **24/24 chương trình đạt mà không chèn `nop`**, khớp mô hình từng chu kỳ.
 - UART RX chạy đúng trên circuit `main` của cả hai CPU (chế độ `-tty`: gõ `hello, RISC-V!` thì in ra `HELLO, RISC-V!`).
 - Ngắt chạy đúng trên circuit `main` của cả hai CPU (`demo18_irq.s`, chế độ `-tty`: gõ `hello, irq!` thì ISR in ra `HELLO, IRQ!` trong khi vòng lặp chính vẫn chạy).
 - Bảng `report/so_sanh.md` ghi `sai` cho `t18*` ở cột Lab 9/10. Đây là điều mong đợi: các mức đó chèn `nop` sau lệnh nhảy thay vì flush, còn lệnh nhảy do ngắt chèn vào thì không có `nop`. Ngắt cần pipeline có flush đầy đủ (Lab 11, 16).

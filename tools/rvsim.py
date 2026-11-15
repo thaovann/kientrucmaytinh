@@ -10,6 +10,8 @@ Mo phong dung nhu phan cung trong cac lab:
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fpu as _fpu
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 M = 0xFFFFFFFF
 def s32(x): return x - (1 << 32) if x & 0x80000000 else x
@@ -152,7 +154,9 @@ class RV:
             return x & y
 
         wb = None
-        if op == 0x33 and is_m(ins):                     # M-extension (Lab 14)
+        if op == _fpu.OP_FP:                             # so thuc Zfinx (rs1, rs2, rd la thanh ghi x)
+            wb = _fpu.fpu(ins, a, b)
+        elif op == 0x33 and is_m(ins):                   # M-extension (Lab 14)
             wb = muldiv(f3, a, b)
         elif op == 0x33:                                 # R-type
             wb = alu(f3, a, b, b30)

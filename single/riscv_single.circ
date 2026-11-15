@@ -923,7 +923,7 @@ a6472b7 c7228293 20502423 20002623 20000393 3c303 30863 642423
       <a name="label" val="ism"/>
     </comp>
     <comp lib="0" loc="(2030,420)" name="Tunnel">
-      <a name="label" val="aluout"/>
+      <a name="label" val="alum"/>
       <a name="width" val="32"/>
     </comp>
     <comp lib="0" loc="(2110,140)" name="Tunnel">
@@ -1459,6 +1459,60 @@ a6472b7 c7228293 20502423 20002623 20000393 3c303 30863 642423
       <a name="label" val="inh"/>
     </comp>
     <wire from="(1160,1450)" to="(1190,1450)"/>
+    <comp lib="13" loc="(2000,1420)" name="FPU">
+    </comp>
+    <comp lib="0" loc="(1740,1420)" name="Tunnel">
+      <a name="facing" val="east"/>
+      <a name="label" val="rd1"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(1740,1420)" to="(1780,1420)"/>
+    <comp lib="0" loc="(1740,1440)" name="Tunnel">
+      <a name="facing" val="east"/>
+      <a name="label" val="rd2"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(1740,1440)" to="(1780,1440)"/>
+    <comp lib="0" loc="(1740,1460)" name="Tunnel">
+      <a name="facing" val="east"/>
+      <a name="label" val="instr"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(1740,1460)" to="(1780,1460)"/>
+    <comp lib="0" loc="(2030,1420)" name="Tunnel">
+      <a name="label" val="fpy"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(2000,1420)" to="(2030,1420)"/>
+    <comp lib="0" loc="(2030,1440)" name="Tunnel">
+      <a name="label" val="isfp"/>
+    </comp>
+    <wire from="(2000,1440)" to="(2030,1440)"/>
+    <comp lib="0" loc="(2250,1420)" name="Tunnel">
+      <a name="facing" val="east"/>
+      <a name="label" val="alum"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(2250,1420)" to="(2270,1420)"/>
+    <comp lib="0" loc="(2250,1440)" name="Tunnel">
+      <a name="facing" val="east"/>
+      <a name="label" val="fpy"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(2250,1440)" to="(2270,1440)"/>
+    <comp lib="2" loc="(2300,1430)" name="Multiplexer">
+      <a name="width" val="32"/>
+    </comp>
+    <comp lib="0" loc="(2280,1470)" name="Tunnel">
+      <a name="facing" val="north"/>
+      <a name="label" val="isfp"/>
+    </comp>
+    <wire from="(2280,1450)" to="(2280,1470)"/>
+    <comp lib="0" loc="(2330,1430)" name="Tunnel">
+      <a name="label" val="aluout"/>
+      <a name="width" val="32"/>
+    </comp>
+    <wire from="(2300,1430)" to="(2330,1430)"/>
   </circuit>
   <circuit name="IO">
     <a name="appearance" val="logisim_evolution"/>

@@ -23,6 +23,7 @@ CTRL = {
  0b1101111: (1, 0, 0, 0, 2, 0, 1, 0, 0, 4),   # JAL
  0b1100111: (1, 1, 0, 0, 2, 0, 0, 1, 0, 0),   # JALR
  0b0110111: (1, 1, 0, 0, 0, 0, 0, 0, 1, 3),   # LUI
+ 0b1010011: (1, 0, 0, 0, 0, 0, 0, 0, 2, 0),   # OP-FP (Zfinx): nhu R-type; ket qua lay tu FPU o tang EX
 }
 FIELDS = ["RegWrite","ALUSrc","MemRead","MemWrite","MemToReg","Branch","Jump","Jalr","ALUOp","ImmSel"]
 def pack(t):
